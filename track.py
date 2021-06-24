@@ -1,7 +1,6 @@
 import sys
 sys.path.insert(0, './yolov5')
 
-from yolov5.utils.google_utils import attempt_download
 from yolov5.models.experimental import attempt_load
 from yolov5.utils.datasets import LoadImages, LoadStreams
 from yolov5.utils.general import check_img_size, non_max_suppression, scale_coords, \
@@ -18,6 +17,8 @@ from pathlib import Path
 import cv2
 import torch
 import torch.backends.cudnn as cudnn
+
+import numpy as np
 
 
 
@@ -78,16 +79,14 @@ def draw_boxes(img, bbox, identities=None, offset=(0, 0)):
 
 
 def detect(opt):
-    out, source, yolo_weights, deep_sort_weights, show_vid, save_vid, save_txt, imgsz, evaluate = \
-        opt.output, opt.source, opt.yolo_weights, opt.deep_sort_weights, opt.show_vid, opt.save_vid, \
-            opt.save_txt, opt.img_size, opt.evaluate
+    out, source, weights, show_vid, save_vid, save_txt, imgsz = \
+        opt.output, opt.source, opt.weights, opt.show_vid, opt.save_vid, opt.save_txt, opt.img_size
     webcam = source == '0' or source.startswith(
         'rtsp') or source.startswith('http') or source.endswith('.txt')
 
     # initialize deepsort
     cfg = get_config()
     cfg.merge_from_file(opt.config_deepsort)
-    attempt_download(deep_sort_weights, repo='mikel-brostrom/Yolov5_DeepSort_Pytorch')
     deepsort = DeepSort(cfg.DEEPSORT.REID_CKPT,
                         max_dist=cfg.DEEPSORT.MAX_DIST, min_confidence=cfg.DEEPSORT.MIN_CONFIDENCE,
                         nms_max_overlap=cfg.DEEPSORT.NMS_MAX_OVERLAP, max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE,
@@ -96,18 +95,13 @@ def detect(opt):
 
     # Initialize
     device = select_device(opt.device)
-
-    # The MOT16 evaluation runs multiple inference streams in parallel, each one writing to
-    # its own .txt file. Hence, in that case, the output folder is not restored
-    if not evaluate:
-        if os.path.exists(out):
-            pass
-            shutil.rmtree(out)  # delete output folder
-        os.makedirs(out)  # make new output folder
+    if os.path.exists(out):
+        shutil.rmtree(out)  # delete output folder
+    os.makedirs(out)  # make new output folder
     half = device.type != 'cpu'  # half precision only supported on CUDA
 
     # Load model
-    model = attempt_load(yolo_weights, map_location=device)  # load FP32 model
+    model = attempt_load(weights, map_location=device)  # load FP32 model
     stride = int(model.stride.max())  # model stride
     imgsz = check_img_size(imgsz, s=stride)  # check img_size
     names = model.module.names if hasattr(model, 'module') else model.names  # get class names
@@ -135,10 +129,18 @@ def detect(opt):
     t0 = time.time()
 
     save_path = str(Path(out))
-    # extract what is in between the last '/' and last '.'
-    txt_file_name = source.split('/')[-1].split('.')[0]
-    txt_path = str(Path(out)) + '/' + txt_file_name + '.txt'
+    txt_path = str(Path(out)) + '/results.txt'
 
+
+    last_idx = 1
+    Pavos_count = 0
+    last_center = np.zeros((2,))
+    new_center = np.zeros((2,))
+    last_distance = 0
+    primer_pavo = True
+    suma_pavo = False
+    sort_list = np.zeros((2,))
+    sort_idxs = np.zeros((2,),np.int32)
     for frame_idx, (path, img, im0s, vid_cap) in enumerate(dataset):
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
@@ -196,21 +198,68 @@ def detect(opt):
                 if len(outputs) > 0:
                     bbox_xyxy = outputs[:, :4]
                     identities = outputs[:, -1]
-                    draw_boxes(im0, bbox_xyxy, identities)
+
                     # to MOT format
                     tlwh_bboxs = xyxy_to_tlwh(bbox_xyxy)
 
                     # Write MOT compliant results to file
+
                     if save_txt:
+                        #print(outputs[-1])
                         for j, (tlwh_bbox, output) in enumerate(zip(tlwh_bboxs, outputs)):
                             bbox_top = tlwh_bbox[0]
                             bbox_left = tlwh_bbox[1]
                             bbox_w = tlwh_bbox[2]
                             bbox_h = tlwh_bbox[3]
                             identity = output[-1]
+
+                            if j == 0:
+                                new_center[0:1] = tlwh_bbox[0:1]
+                                if primer_pavo:
+                                    last_center[0:1] = tlwh_bbox[0:1]
+                                    primer_pavo = False
+
+                                distance = np.linalg.norm(last_center-new_center)
+                                #D = np.abs(last_distance - distance)
+                                print('Distance',distance)
+                                if distance > 40:
+                                    Pavos_count+=1
+                                    suma_pavo = True
+                                if len(tlwh_bboxs) < 2:
+                                    suma_pavo = False
+                                #last_distance =  distance
+
+                                last_center[0:1] = new_center[0:1]
+                            # if j == 0:
+                            #     new_idx = output[-1]
+                            #
+                            #     if (last_idx - new_idx) != 0:
+                            #         Pavos_count+=1
+                            #     last_idx = new_idx
+                            #if j == (len(outputs)-1):
+
                             with open(txt_path, 'a') as f:
                                 f.write(('%g ' * 10 + '\n') % (frame_idx, identity, bbox_top,
                                                             bbox_left, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
+                        if Pavos_count == 0:
+                            Pavos_count+= (j+1)
+
+                    if suma_pavo:
+                        sort_list = np.zeros(len(tlwh_bboxs))
+                        for pavo in range(len(tlwh_bboxs)):
+                            sort_list[pavo] = tlwh_bboxs[pavo][1]
+                        sort_idxs = np.argsort(sort_list)
+
+                    print('sort',sort_list,sort_idxs,sort_idxs[-1])
+                    #
+                    # for i in range(identities.shape[0]):
+                    #     identities[i] = Pavos_count - (identities.shape[0] - (sort_idxs[i]+1))
+                        #identities[i] = Pavos_count  - sort_idxs[i]
+
+                    #draw_boxes(im0, bbox_xyxy, identities)
+                    draw_boxes(im0, [bbox_xyxy[sort_idxs[-1],:]], [Pavos_count])
+
+                print('Pavos: ',Pavos_count)
 
             else:
                 deepsort.increment_ages()
@@ -251,8 +300,7 @@ def detect(opt):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo_weights', type=str, default='yolov5/weights/yolov5s.pt', help='model.pt path')
-    parser.add_argument('--deep_sort_weights', type=str, default='deep_sort_pytorch/deep_sort/deep/checkpoint/ckpt.t7', help='ckpt.t7 path')
+    parser.add_argument('--weights', type=str, default='yolov5/weights/yolov5s.pt', help='model.pt path')
     # file/folder, 0 for webcam
     parser.add_argument('--source', type=str, default='0', help='source')
     parser.add_argument('--output', type=str, default='inference/output', help='output folder')  # output folder
@@ -265,10 +313,9 @@ if __name__ == '__main__':
     parser.add_argument('--save-vid', action='store_true', help='save video tracking results')
     parser.add_argument('--save-txt', action='store_true', help='save MOT compliant results to *.txt')
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
-    parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --class 0, or --class 16 17')
+    parser.add_argument('--classes', nargs='+', default=[0,1], type=int, help='filter by class')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
-    parser.add_argument('--evaluate', action='store_true', help='augmented inference')
     parser.add_argument("--config_deepsort", type=str, default="deep_sort_pytorch/configs/deep_sort.yaml")
     args = parser.parse_args()
     args.img_size = check_img_size(args.img_size)

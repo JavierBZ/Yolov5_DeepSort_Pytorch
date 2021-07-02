@@ -251,6 +251,7 @@ def detect(opt):
                         sort_idxs = np.argsort(sort_list)
 
                     print('sort',sort_list,sort_idxs,sort_idxs[-1])
+                    print(bbox_xyxy,bbox_xyxy.shape)
                     #
                     # for i in range(identities.shape[0]):
                     #     identities[i] = Pavos_count - (identities.shape[0] - (sort_idxs[i]+1))

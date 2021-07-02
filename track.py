@@ -244,20 +244,21 @@ def detect(opt):
                         if Pavos_count == 0:
                             Pavos_count+= (j+1)
 
-                    if suma_pavo:
-                        sort_list = np.zeros(len(tlwh_bboxs))
-                        for pavo in range(len(tlwh_bboxs)):
-                            sort_list[pavo] = tlwh_bboxs[pavo][1]
-                        sort_idxs = np.argsort(sort_list)
+                    #if suma_pavo:
+                    sort_list = np.zeros(len(tlwh_bboxs))
+                    for pavo in range(len(tlwh_bboxs)):
+                        sort_list[pavo] = tlwh_bboxs[pavo][1]
+                    sort_idxs = np.argsort(sort_list)
 
                     print('sort',sort_list,sort_idxs,sort_idxs[-1])
-                    print(bbox_xyxy,bbox_xyxy.shape)
+                    #print(bbox_xyxy,bbox_xyxy.shape)
                     #
                     # for i in range(identities.shape[0]):
                     #     identities[i] = Pavos_count - (identities.shape[0] - (sort_idxs[i]+1))
                         #identities[i] = Pavos_count  - sort_idxs[i]
 
                     #draw_boxes(im0, bbox_xyxy, identities)
+                    #if sort_idxs[-1] > bbox_xyxy[]
                     draw_boxes(im0, [bbox_xyxy[sort_idxs[-1],:]], [Pavos_count])
 
                 print('Pavos: ',Pavos_count)

@@ -79,8 +79,8 @@ def draw_boxes(img, bbox, identities=None, offset=(0, 0)):
 
 
 def detect(opt):
-    out, source, weights, show_vid, save_vid, save_txt, imgsz = \
-        opt.output, opt.source, opt.weights, opt.show_vid, opt.save_vid, opt.save_txt, opt.img_size
+    out, source, weights, show_vid, save_vid, save_txt, imgsz,distance_th = \
+        opt.output, opt.source, opt.weights, opt.show_vid, opt.save_vid, opt.save_txt, opt.img_size,opt.distance
     webcam = source == '0' or source.startswith(
         'rtsp') or source.startswith('http') or source.endswith('.txt')
 
@@ -222,7 +222,7 @@ def detect(opt):
                                 distance = np.linalg.norm(last_center-new_center)
                                 #D = np.abs(last_distance - distance)
                                 print('Distance',distance)
-                                if distance > 40:
+                                if distance > distance_th:
                                     Pavos_count+=1
                                     suma_pavo = True
                                 if len(tlwh_bboxs) < 2:
@@ -319,6 +319,7 @@ if __name__ == '__main__':
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument("--config_deepsort", type=str, default="deep_sort_pytorch/configs/deep_sort.yaml")
+    parser.add_argument('--distance', type=int, default=50, help='distance between class 0 object (pixels)')
     args = parser.parse_args()
     args.img_size = check_img_size(args.img_size)
 
